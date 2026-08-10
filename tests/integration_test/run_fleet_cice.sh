@@ -465,6 +465,8 @@ if [[ "$model" == "gemma4" ]]; then
     exit 1
   fi
   output_dir=$root_dir/checkpoints/gemma4-pt
+  unset FLAGS_cudnn_deterministic
+  #Todo fix later by zhuxinming
   export data_dir model_name_or_path output_dir
   yq_write "$config_yaml" '.train_dataset_path = strenv(data_dir) + "/train.jsonl"
     | .eval_dataset_path = strenv(data_dir) + "/train.jsonl"
