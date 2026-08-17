@@ -31,6 +31,7 @@ import paddle
 import paddle.distributed as dist
 from paddle.distributed import fleet, in_auto_parallel_align_mode
 
+from ..quantization.hf_checkpoint import normalize_hf_quantized_load_mode
 from ..utils.config_check import _raise_config_conflict
 from ..utils.env import PREFIX_CHECKPOINT_DIR
 from ..utils.import_utils import is_paddlefleet_available
@@ -436,6 +437,11 @@ class TrainingArguments:
         load_from_hf (bool, optional):
             Whether to load a checkpoint in the HuggingFace format.
             Defaults to False.
+
+        hf_quantized_load_mode (`str`, *optional*, defaults to `"auto"`):
+            Controls HF quantized checkpoint detection. `"off"` preserves the existing loader,
+            `"auto"` enables a supported transform when quantization metadata is present, and
+            `"dequantize_bf16"` requires a supported quantized checkpoint.
 
         replicate_saved_into_local (bool, optional):
             Whether to save checkpoint replicas into local files in a distributed save/load system.
@@ -1386,6 +1392,14 @@ class TrainingArguments:
         default=False,
         metadata={"help": "Whether to load a checkpoint in the HuggingFace format."},
     )
+    hf_quantized_load_mode: str = field(
+        default="auto",
+        metadata={
+            "help": (
+                "How to load HuggingFace quantized checkpoints. Options: 'auto', 'off', " "and 'dequantize_bf16'."
+            )
+        },
+    )
     deterministic_mode: bool = field(
         default=False,
         metadata={"help": "Whether to use deterministic mode."},
@@ -1756,6 +1770,7 @@ class TrainingArguments:
     )
 
     def __post_init__(self):
+        self.hf_quantized_load_mode = normalize_hf_quantized_load_mode(self.hf_quantized_load_mode)
         world_size = paddle.distributed.get_world_size()
         if in_auto_parallel_align_mode():
             # self.max_grad_norm = 0.0

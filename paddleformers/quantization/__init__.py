@@ -19,6 +19,13 @@ from typing import TYPE_CHECKING
 from ..utils.lazy_import import _LazyModule
 
 import_structure = {
+    "checkpoint_dequant": [
+        "CheckpointDequantSpec",
+        "CheckpointDequantizer",
+        "checkpoint_dequantize",
+        "get_checkpoint_dequantizer",
+        "register_checkpoint_dequantizer",
+    ],
     "checkpoint_quantization_utils": [
         "cal_ratio",
         "group_wise_quant_dequant",
@@ -30,6 +37,21 @@ import_structure = {
         "qdq_weight",
     ],
     "hadamard_utils": ["matmul_hadU", "create_hadamard_matrix", "hadamard_matmul", "apply_hadamard_matmul"],
+    "hf_checkpoint": [
+        "CompressedTensorsMXFP4HFQuantizationAdapter",
+        "FineGrainedFP8HFQuantizationAdapter",
+        "HFDequantLoadTransform",
+        "HFQuantizationAdapter",
+        "HFQuantizationManifest",
+        "HFQuantizedWeightSpec",
+        "LoadTensorMetadata",
+        "TensorMetadata",
+        "build_hf_dequant_load_transform",
+        "normalize_hf_quantized_load_mode",
+        "read_hf_safetensors_metadata",
+        "register_hf_quantization_adapter",
+        "resolve_hf_quantization_adapter",
+    ],
     "qat_utils": [
         "QMIN_QMAX_MAPPING",
         "quantize",

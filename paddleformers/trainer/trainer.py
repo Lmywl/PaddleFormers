@@ -102,6 +102,7 @@ from ..data import (
 )
 from ..peft import LoRAModel
 from ..peft.lora import QuantizationLoRABaseLinear
+from ..quantization.hf_checkpoint import build_hf_dequant_load_transform
 from ..quantization.quantization_linear import (
     ColumnParallelQuantizationLinear,
     QuantizationLinear,
@@ -1273,6 +1274,23 @@ class Trainer:
             except Exception as e:
                 logger.error(f"Failed to delete {metadata_path}: {e}")
 
+            load_transform = build_hf_dequant_load_transform(
+                checkpoint_path=resume_from_checkpoint,
+                mode=self.args.hf_quantized_load_mode,
+            )
+            load_transform_kwargs = {}
+            if load_transform is not None:
+                try:
+                    supports_load_transform = "load_transform" in inspect.signature(dist.load_state_dict).parameters
+                except (TypeError, ValueError):
+                    supports_load_transform = False
+                if not supports_load_transform:
+                    raise RuntimeError(
+                        "This HuggingFace checkpoint requires load-time dequantization, but the installed Paddle "
+                        "dist.load_state_dict() does not support the load_transform interface."
+                    )
+                load_transform_kwargs["load_transform"] = load_transform
+
             dist.load_state_dict(
                 model_sharded_state_dict,
                 resume_from_checkpoint,
@@ -1282,6 +1300,7 @@ class Trainer:
                 process_group=None,
                 comm_method=flex_ckpt_comm_method,
                 worker_groups=worker_groups,
+                **load_transform_kwargs,
             )
             if hasattr(self.model, "_synchronize_shared_weights"):
                 self.model._synchronize_shared_weights()
