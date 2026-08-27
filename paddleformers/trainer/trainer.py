@@ -102,6 +102,7 @@ from ..data import (
 )
 from ..peft import LoRAModel
 from ..peft.lora import QuantizationLoRABaseLinear
+from ..quantization.hf_checkpoint import build_hf_dequant_load_transform
 from ..quantization.quantization_linear import (
     ColumnParallelQuantizationLinear,
     QuantizationLinear,
@@ -1256,6 +1257,11 @@ class Trainer:
 
         if self.args.load_from_hf:
             hf_aoa_config = self.model._gen_aoa_config(self.model.config)
+            hf_quan_config = None
+            if self.args.hf_quantized_load_mode:
+                gen_hf_quan_config = getattr(self.model, "_gen_hf_quan_config", None)
+                if callable(gen_hf_quan_config):
+                    hf_quan_config = gen_hf_quan_config()
             assert (
                 self.args.ignore_load_lr_and_optim
             ), "Loading from HuggingFace format is only allowed when learning rate and optimizer state are ignored."
@@ -1272,6 +1278,11 @@ class Trainer:
             except Exception as e:
                 logger.error(f"Failed to delete {metadata_path}: {e}")
 
+            load_transform = build_hf_dequant_load_transform(
+                checkpoint_path=resume_from_checkpoint,
+                mode=self.args.hf_quantized_load_mode,
+                quan_config=hf_quan_config,
+            )
             dist.load_state_dict(
                 model_sharded_state_dict,
                 resume_from_checkpoint,
@@ -1281,6 +1292,7 @@ class Trainer:
                 process_group=None,
                 comm_method=flex_ckpt_comm_method,
                 worker_groups=worker_groups,
+                load_transform=load_transform,
             )
             if hasattr(self.model, "_synchronize_shared_weights"):
                 self.model._synchronize_shared_weights()

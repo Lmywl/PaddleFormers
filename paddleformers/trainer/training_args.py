@@ -437,6 +437,10 @@ class TrainingArguments:
             Whether to load a checkpoint in the HuggingFace format.
             Defaults to False.
 
+        hf_quantized_load_mode (`bool`, *optional*, defaults to `False`):
+            Whether to enable model-defined HF quantized checkpoint loading. The
+            model supplies its descriptor through ``_gen_hf_quan_config()``.
+
         replicate_saved_into_local (bool, optional):
             Whether to save checkpoint replicas into local files in a distributed save/load system.
             If set to True, replicas will be stored locally on each node/machine.
@@ -1372,6 +1376,12 @@ class TrainingArguments:
     load_from_hf: Optional[bool] = field(
         default=False,
         metadata={"help": "Whether to load a checkpoint in the HuggingFace format."},
+    )
+    hf_quantized_load_mode: bool = field(
+        default=False,
+        metadata={
+            "help": "Whether to enable model-defined HuggingFace quantized checkpoint loading.",
+        },
     )
     deterministic_mode: bool = field(
         default=False,
