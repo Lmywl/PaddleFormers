@@ -447,6 +447,11 @@ class HFDequantLoadTransform:
         local boundaries.  Unaligned, transposed, or otherwise irregular
         layouts use the existing global path instead of guessing a scale
         origin.
+
+        ``target_shard_metadata`` describes the shard of the logical tensor
+        this rank holds, so a distributed target reports its local shape here,
+        not its global one.  The plan is cached because ``apply()`` validates
+        the dequantized shape against it.
         """
         spec, group = self._relation(logical_key)
 
@@ -521,9 +526,6 @@ class HFDequantLoadTransform:
         )
         self._read_plans[logical_key] = plan
         return plan
-
-    def read_plan_for(self, logical_key: str) -> HFReadPlan | None:
-        return self._read_plans.get(logical_key)
 
     def apply(
         self,

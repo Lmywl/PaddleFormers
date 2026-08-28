@@ -699,9 +699,6 @@ class TestHFDequantLoadTransform(CPUDequantTestCase):
         with self.assertRaisesRegex(KeyError, "is not managed by this load transform"):
             self.transform.source_keys("layers.0.attn.wq_b.weight")
 
-    def test_no_plan_is_cached_before_planning(self):
-        self.assertIsNone(self.transform.read_plan_for(FP8_WEIGHT))
-
     def test_block_aligned_shard_reads_local_slices(self):
         plan = self.transform.read_plan(FP8_WEIGHT, target_shard((4, 4), (2, 4), (0, 0)))
 
@@ -715,7 +712,6 @@ class TestHFDequantLoadTransform(CPUDequantTestCase):
         scale = plan.source_slices[FP8_SCALE]
         self.assertEqual(tuple(scale.global_shape), (2, 2))
         self.assertEqual((tuple(scale.global_offset), tuple(scale.local_shape)), ((0, 0), (1, 2)))
-        self.assertIs(self.transform.read_plan_for(FP8_WEIGHT), plan)
 
     def test_offset_shard_maps_onto_the_matching_scale_rows(self):
         plan = self.transform.read_plan(FP8_WEIGHT, target_shard((4, 4), (2, 4), (2, 0)))
@@ -802,6 +798,18 @@ class TestHFDequantLoadTransform(CPUDequantTestCase):
         )
 
         np.testing.assert_array_equal(output.numpy(), np.full((2, 4), 2.0, dtype="float32"))
+
+    def test_apply_without_a_plan_expects_the_whole_logical_tensor(self):
+        """No cached plan means no local read happened, so a shard is a bug."""
+        with self.assertRaisesRegex(ValueError, "expected \\(4, 4\\), got \\(2, 4\\)"):
+            self.transform.apply(
+                FP8_WEIGHT,
+                {
+                    FP8_WEIGHT: paddle.full([2, 4], E4M3_ONE, dtype="uint8"),
+                    FP8_SCALE: paddle.full([1, 2], 128, dtype="uint8"),
+                },
+                paddle.float32,
+            )
 
     def test_apply_rejects_sources_that_contradict_the_cached_plan(self):
         self.transform.read_plan(FP8_WEIGHT, target_shard((4, 4), (2, 4), (0, 0)))
