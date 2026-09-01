@@ -1283,6 +1283,9 @@ class Trainer:
                 mode=self.args.hf_quantized_load_mode,
                 quan_config=hf_quan_config,
             )
+            # Only forward load_transform when a transform exists, so that a
+            # Paddle without the keyword keeps working for unquantized loads.
+            load_transform_kwargs = {} if load_transform is None else {"load_transform": load_transform}
             dist.load_state_dict(
                 model_sharded_state_dict,
                 resume_from_checkpoint,
@@ -1292,7 +1295,7 @@ class Trainer:
                 process_group=None,
                 comm_method=flex_ckpt_comm_method,
                 worker_groups=worker_groups,
-                load_transform=load_transform,
+                **load_transform_kwargs,
             )
             if hasattr(self.model, "_synchronize_shared_weights"):
                 self.model._synchronize_shared_weights()
