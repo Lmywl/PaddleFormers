@@ -268,6 +268,28 @@ class QuanDescriptor:
 
     @staticmethod
     def _descriptor_patterns(group: dict[str, Any]) -> tuple[re.Pattern[str], ...]:
+        """Compile one group's ``targets`` entries into match patterns.
+
+        Two forms are accepted, and the ``re:`` form is the preferred one:
+
+        - ``"re:<regex>"`` -- everything after ``re:`` is used as a regular
+          expression.  Real checkpoints name weights per layer and per expert,
+          so this is the only form able to describe a whole weight family; the
+          in-tree DeepSeek-V4 and Kimi-K3 descriptors both use a single anchored
+          ``re:`` target.  Anchor these patterns yourself (``^`` / ``$``) to keep
+          the match tight, since they are applied with :meth:`re.Pattern.search`.
+        - a plain string -- a literal, fully qualified physical tensor name,
+          matched in full.  This is only a supplementary form, for the occasional
+          one-off weight that carries no layer or expert index.
+
+        Literal targets are anchored with ``\\A`` / ``\\Z`` here.  ``re.escape``
+        alone would keep the literal from being read as a regex but would still
+        leave ``search`` free to match a substring, so ``layers.1.attn.wq_a.weight``
+        would also match ``prefix.layers.1.attn.wq_a.weight`` and a shorter
+        ``layers.1`` would match ``layers.11...``, dragging weight/scale pairs the
+        descriptor never declared into the transform.  Anchoring makes a literal
+        target denote exactly one tensor name.
+        """
         raw_targets = group.get("targets")
         if isinstance(raw_targets, str):
             raw_targets = [raw_targets]
@@ -279,7 +301,7 @@ class QuanDescriptor:
             raise ValueError("Each quan_desc group must define a non-empty string targets list.")
         patterns = []
         for target in raw_targets:
-            expression = target[3:] if target.startswith("re:") else re.escape(target)
+            expression = target[3:] if target.startswith("re:") else rf"\A{re.escape(target)}\Z"
             try:
                 patterns.append(re.compile(expression))
             except re.error as exc:

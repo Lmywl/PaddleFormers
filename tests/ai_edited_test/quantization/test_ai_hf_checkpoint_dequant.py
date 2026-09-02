@@ -485,6 +485,33 @@ class TestQuanDescriptorValidation(unittest.TestCase):
 
         self.assertEqual(set(metadata.relations), {FP8_WEIGHT})
 
+    def test_literal_targets_do_not_match_longer_names(self):
+        """A literal target names one exact tensor; ``re:`` stays the way to cover a family."""
+        cases = [
+            (
+                "extra prefix on the checkpoint key",
+                FP8_WEIGHT,
+                {"prefix." + FP8_WEIGHT: ((4, 4), "uint8"), "prefix." + FP8_SCALE: ((2, 2), "uint8")},
+            ),
+            (
+                "layer indices sharing a numeric prefix",
+                "layers.1",
+                {"layers.11.attn.wq_a.weight": ((4, 4), "uint8"), "layers.11.attn.wq_a.scale": ((2, 2), "uint8")},
+            ),
+            (
+                "target stopping short of the weight suffix",
+                FP8_WEIGHT[: -len(WEIGHT_SUFFIX)],
+                {FP8_WEIGHT: ((4, 4), "uint8"), FP8_SCALE: ((2, 2), "uint8")},
+            ),
+        ]
+
+        for name, target, entries in cases:
+            with self.subTest(name):
+                descriptor = QuanDescriptor.from_dict(descriptor_dict(fp8_group(targets=[target])))
+
+                with self.assertRaisesRegex(ValueError, "did not match all quantized weight/scale pairs"):
+                    descriptor.build_metadata(physical_metadata(entries))
+
     def test_invalid_descriptors_are_rejected(self):
         cases = [
             ("unsupported schema version", descriptor_dict(schema_version=2), "schema_version"),
