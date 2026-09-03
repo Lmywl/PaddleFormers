@@ -42,7 +42,7 @@ from paddleformers.quantization.hf_checkpoint import (
     build_hf_dequant_load_transform,
 )
 
-# Written into the checkpoint directory by paddle's create_hf_ckpt_metadata().
+# Physical metadata file DCP looks for in an HF checkpoint directory.
 PADDLE_METADATA_FILE_NAME = "flex-ckpt.auto_generated.metadata"
 SAFETENSORS_FILE_NAME = "model-00001-of-00001.safetensors"
 # Byte width of every safetensors storage format used below.
@@ -853,7 +853,7 @@ class TestHFDequantLoadTransform(CPUDequantTestCase):
 
 
 class TestBuildHFDequantLoadTransform(unittest.TestCase):
-    """End-to-end construction from a real HF safetensors directory."""
+    """End-to-end construction from a checkpoint directory."""
 
     def setUp(self):
         self.checkpoint_path = tempfile.mkdtemp()
@@ -871,6 +871,25 @@ class TestBuildHFDequantLoadTransform(unittest.TestCase):
             ],
         )
 
+    def write_paddle_metadata(self, entries=None):
+        """State the physical metadata the checkpoint directory carries.
+
+        ``create_hf_ckpt_metadata()`` cannot describe a quantized checkpoint: its
+        dtype table has no F8_* entry, so it is the checkpoint producer that has
+        to supply this file.  Raw 8-bit formats appear as ``uint8`` because that
+        is what leaves their meaning to the transform.
+        """
+        if entries is None:
+            entries = {
+                FP8_WEIGHT: ((4, 4), "uint8"),
+                FP8_SCALE: ((2, 2), "uint8"),
+                UNQUANTIZED_WEIGHT: ((4,), "bfloat16"),
+            }
+        paddle.save(
+            physical_metadata(entries),
+            os.path.join(self.checkpoint_path, PADDLE_METADATA_FILE_NAME),
+        )
+
     def test_disabled_mode_returns_none(self):
         self.write_checkpoint()
 
@@ -881,10 +900,10 @@ class TestBuildHFDequantLoadTransform(unittest.TestCase):
         self.write_checkpoint()
 
         self.assertIsNone(build_hf_dequant_load_transform(self.checkpoint_path, True))
-        self.assertNotIn(PADDLE_METADATA_FILE_NAME, os.listdir(self.checkpoint_path))
 
-    def test_transform_is_built_from_the_safetensors_headers(self):
+    def test_transform_is_built_from_the_checkpoint_metadata(self):
         self.write_checkpoint()
+        self.write_paddle_metadata()
 
         transform = build_hf_dequant_load_transform(self.checkpoint_path, True, descriptor_dict())
 
@@ -893,24 +912,23 @@ class TestBuildHFDequantLoadTransform(unittest.TestCase):
         self.assertEqual(set(logical), {FP8_WEIGHT})
         self.assertEqual(tuple(logical[FP8_WEIGHT].global_shape), (4, 4))
         self.assertEqual(logical[FP8_WEIGHT].dtype, "bfloat16")
-        # Raw 8-bit formats must survive as uint8 so the transform owns their meaning.
+        # Raw 8-bit formats stay uint8 so the transform owns their meaning.
         physical = transform.quan_metadata.physical_metadata.state_dict_metadata
         self.assertEqual(physical[FP8_WEIGHT][0].dtype, "uint8")
         self.assertEqual(physical[FP8_SCALE][0].dtype, "uint8")
 
-    def test_generated_paddle_metadata_is_reused_on_the_next_build(self):
-        self.write_checkpoint()
-        first = build_hf_dequant_load_transform(self.checkpoint_path, True, descriptor_dict())
-        self.assertIn(PADDLE_METADATA_FILE_NAME, os.listdir(self.checkpoint_path))
+    def test_paddle_metadata_is_read_instead_of_the_safetensors_files(self):
+        self.write_paddle_metadata()
 
-        # Deleting the safetensors file proves the second build reads the cached metadata.
-        os.remove(os.path.join(self.checkpoint_path, SAFETENSORS_FILE_NAME))
-        second = build_hf_dequant_load_transform(self.checkpoint_path, True, descriptor_dict())
+        # No safetensors file was ever written, so the build can only have come
+        # from the metadata file.
+        transform = build_hf_dequant_load_transform(self.checkpoint_path, True, descriptor_dict())
 
-        self.assertEqual(set(second.logical_metadata()), set(first.logical_metadata()))
+        self.assertEqual(set(transform.logical_metadata()), {FP8_WEIGHT})
 
     def test_unquantized_checkpoint_with_a_descriptor_is_rejected(self):
         self.write_checkpoint([(UNQUANTIZED_WEIGHT, "BF16", (4,))])
+        self.write_paddle_metadata({UNQUANTIZED_WEIGHT: ((4,), "bfloat16")})
 
         with self.assertRaisesRegex(ValueError, "matched no quantized weight/scale pairs"):
             build_hf_dequant_load_transform(self.checkpoint_path, True, descriptor_dict())
