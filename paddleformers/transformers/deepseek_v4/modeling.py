@@ -385,8 +385,9 @@ class DeepseekV4PreTrainedModel(PretrainedModel):
     def _gen_hf_quan_config(cls):
         """Describe the FP8 block-quantized DeepSeek-V4 HF checkpoint.
 
-        Consumed by ``Trainer`` when ``load_from_hf`` and
-        ``hf_quantized_load_mode`` are both enabled; the descriptor is passed to
+        Consumed by ``Trainer`` when ``load_from_hf`` is enabled and the
+        checkpoint's ``config.json`` declares a ``quantization_config``; the
+        descriptor is passed to
         ``paddleformers.quantization.hf_checkpoint`` to build the dequantization
         transform.  The logical ``.weight`` names this produces are exactly the
         AOA sources in :meth:`_gen_aoa_config`.

@@ -33,6 +33,7 @@ from paddle.distributed.flex_checkpoint.dcp.utils import create_hf_ckpt_metadata
 from .checkpoint_dequant import CheckpointDequantizer, get_checkpoint_dequantizer
 
 _PADDLE_METADATA_FILE_NAME = "flex-ckpt.auto_generated.metadata"
+_HF_CONFIG_FILE_NAME = "config.json"
 logger = logging.getLogger(__name__)
 
 # -----------------------------------------------------------------------------
@@ -575,9 +576,24 @@ class HFDequantLoadTransform:
 # -----------------------------------------------------------------------------
 
 
+def hf_checkpoint_is_quantized(checkpoint_path: str) -> bool:
+    """Report whether an HF checkpoint declares quantized weights.
+
+    The checkpoint's own ``config.json`` is the authority: HuggingFace writes a
+    ``quantization_config`` block exactly when the weights on disk are
+    quantized.  Reading it here means no training argument has to repeat that
+    fact, and a model class that owns a ``_gen_hf_quan_config()`` descriptor can
+    still load its unquantized releases through the plain path.
+    """
+    config_path = os.path.join(checkpoint_path, _HF_CONFIG_FILE_NAME)
+    if not os.path.isfile(config_path):
+        return False
+    quantization_config = _read_json(config_path).get("quantization_config")
+    return isinstance(quantization_config, dict) and bool(quantization_config)
+
+
 def build_hf_dequant_load_transform(
     checkpoint_path: str,
-    mode: bool,
     quan_config: dict[str, Any] | None = None,
 ) -> HFDequantLoadTransform | None:
     """Build the HF dequantization transform from model-defined rules.
@@ -585,8 +601,10 @@ def build_hf_dequant_load_transform(
     ``quan_config`` is the descriptor returned by a model's parameterless
     ``_gen_hf_quan_config()`` method.  Checkpoint files only provide physical
     tensor metadata; quantization rules are owned by the model definition.
+    Without a descriptor there is nothing to dequantize, so the caller gets
+    ``None`` and loads the checkpoint through the plain path.
     """
-    if not mode or quan_config is None:
+    if quan_config is None:
         return None
     logger.info(f"load hf quantizated models at {checkpoint_path}.")
     quan_desc = QuanDescriptor.from_dict(quan_config)

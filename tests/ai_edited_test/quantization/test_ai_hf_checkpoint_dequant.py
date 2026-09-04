@@ -40,10 +40,12 @@ from paddleformers.quantization.hf_checkpoint import (
     QuanDescriptor,
     QuanMetadata,
     build_hf_dequant_load_transform,
+    hf_checkpoint_is_quantized,
 )
 
 # Physical metadata file DCP looks for in an HF checkpoint directory.
 PADDLE_METADATA_FILE_NAME = "flex-ckpt.auto_generated.metadata"
+HF_CONFIG_FILE_NAME = "config.json"
 SAFETENSORS_FILE_NAME = "model-00001-of-00001.safetensors"
 # Byte width of every safetensors storage format used below.
 SAFETENSORS_ITEM_SIZE = {"F8_E4M3": 1, "F8_E8M0": 1, "I8": 1, "U8": 1, "BF16": 2}
@@ -852,6 +854,64 @@ class TestHFDequantLoadTransform(CPUDequantTestCase):
             )
 
 
+class TestHFCheckpointIsQuantized(unittest.TestCase):
+    """Detection of quantized checkpoints from their own config.json."""
+
+    def setUp(self):
+        self.checkpoint_path = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.checkpoint_path, True)
+
+    def write_hf_config(self, config):
+        with open(os.path.join(self.checkpoint_path, HF_CONFIG_FILE_NAME), "w", encoding="utf-8") as file:
+            json.dump(config, file)
+
+    def test_fp8_block_checkpoint_is_detected(self):
+        """The quantization_config a DeepSeek-V4 FP8 release carries."""
+        self.write_hf_config(
+            {
+                "model_type": "deepseek_v4",
+                "quantization_config": {
+                    "activation_scheme": "dynamic",
+                    "fmt": "e4m3",
+                    "quant_method": "fp8",
+                    "weight_block_size": [128, 128],
+                },
+            }
+        )
+        self.assertTrue(hf_checkpoint_is_quantized(self.checkpoint_path))
+
+    def test_compressed_tensors_checkpoint_is_detected(self):
+        """The quantization_config a Kimi-K3 MXFP4 release carries."""
+        self.write_hf_config(
+            {
+                "model_type": "kimi_k3",
+                "quantization_config": {
+                    "config_groups": {"group_0": {"weights": {"num_bits": 4}}},
+                    "format": "pack-quantized",
+                    "ignore": ["lm_head"],
+                    "quant_method": "compressed-tensors",
+                },
+            }
+        )
+        self.assertTrue(hf_checkpoint_is_quantized(self.checkpoint_path))
+
+    def test_unquantized_checkpoint_is_not_detected(self):
+        self.write_hf_config({"model_type": "deepseek_v4", "dtype": "bfloat16"})
+        self.assertFalse(hf_checkpoint_is_quantized(self.checkpoint_path))
+
+    def test_empty_quantization_config_is_not_detected(self):
+        """An empty block states no quantization, so it must not enable the transform."""
+        self.write_hf_config({"quantization_config": {}})
+        self.assertFalse(hf_checkpoint_is_quantized(self.checkpoint_path))
+
+    def test_non_object_quantization_config_is_not_detected(self):
+        self.write_hf_config({"quantization_config": "fp8"})
+        self.assertFalse(hf_checkpoint_is_quantized(self.checkpoint_path))
+
+    def test_checkpoint_without_a_config_file_is_not_detected(self):
+        self.assertFalse(hf_checkpoint_is_quantized(self.checkpoint_path))
+
+
 class TestBuildHFDequantLoadTransform(unittest.TestCase):
     """End-to-end construction from a checkpoint directory."""
 
@@ -890,22 +950,17 @@ class TestBuildHFDequantLoadTransform(unittest.TestCase):
             os.path.join(self.checkpoint_path, PADDLE_METADATA_FILE_NAME),
         )
 
-    def test_disabled_mode_returns_none(self):
-        self.write_checkpoint()
-
-        self.assertIsNone(build_hf_dequant_load_transform(self.checkpoint_path, False, descriptor_dict()))
-
     def test_checkpoint_without_a_model_descriptor_returns_none(self):
         """Quantization rules come from the model definition, never from the checkpoint."""
         self.write_checkpoint()
 
-        self.assertIsNone(build_hf_dequant_load_transform(self.checkpoint_path, True))
+        self.assertIsNone(build_hf_dequant_load_transform(self.checkpoint_path))
 
     def test_transform_is_built_from_the_checkpoint_metadata(self):
         self.write_checkpoint()
         self.write_paddle_metadata()
 
-        transform = build_hf_dequant_load_transform(self.checkpoint_path, True, descriptor_dict())
+        transform = build_hf_dequant_load_transform(self.checkpoint_path, descriptor_dict())
 
         self.assertIsInstance(transform, HFDequantLoadTransform)
         logical = transform.logical_metadata()
@@ -922,7 +977,7 @@ class TestBuildHFDequantLoadTransform(unittest.TestCase):
 
         # No safetensors file was ever written, so the build can only have come
         # from the metadata file.
-        transform = build_hf_dequant_load_transform(self.checkpoint_path, True, descriptor_dict())
+        transform = build_hf_dequant_load_transform(self.checkpoint_path, descriptor_dict())
 
         self.assertEqual(set(transform.logical_metadata()), {FP8_WEIGHT})
 
@@ -931,7 +986,7 @@ class TestBuildHFDequantLoadTransform(unittest.TestCase):
         self.write_paddle_metadata({UNQUANTIZED_WEIGHT: ((4,), "bfloat16")})
 
         with self.assertRaisesRegex(ValueError, "matched no quantized weight/scale pairs"):
-            build_hf_dequant_load_transform(self.checkpoint_path, True, descriptor_dict())
+            build_hf_dequant_load_transform(self.checkpoint_path, descriptor_dict())
 
 
 if __name__ == "__main__":

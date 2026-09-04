@@ -108,7 +108,7 @@ def main():
     dist.barrier()
 
     # Collective: every rank scans its share of the safetensors headers.
-    transform = build_hf_dequant_load_transform(ckpt_path, True, descriptor())
+    transform = build_hf_dequant_load_transform(ckpt_path, descriptor())
 
     mesh = dist.ProcessMesh(list(range(world_size)))
     target = dist.shard_tensor(

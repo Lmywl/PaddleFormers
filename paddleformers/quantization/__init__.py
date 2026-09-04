@@ -37,6 +37,7 @@ import_structure = {
     ],
     "hf_checkpoint": [
         "build_hf_dequant_load_transform",
+        "hf_checkpoint_is_quantized",
     ],
     "qat_utils": [
         "QMIN_QMAX_MAPPING",
